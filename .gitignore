@@ -1,28 +1,29 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Python
+__pycache__/
+*.py[cod]
+Backend/.venv/
+Backend/venv/
 
-node_modules
-dist
-dist-ssr
-*.local
+# Local databases and candidate data
+Backend/shortlist.db
+Backend/shortlist.db-*
+Backend/uploads/
+*.sqlite
+*.sqlite3
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Node and build output
+node_modules/
+Frontend/node_modules/
+Backend/node_modules/
+Frontend/dist/
+Frontend/coverage/
 
+# Local environment and editor files
 .env
 .env.*
 !.env.example
+.vscode/
+.idea/
+*.log
+Thumbs.db
+.DS_Store
