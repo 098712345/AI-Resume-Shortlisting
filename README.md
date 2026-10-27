@@ -10,6 +10,7 @@ similarity to help companies compare résumés with a role.
 - Separate candidate and company accounts.
 - Company job posts and applicant review.
 - Candidate résumé upload and job applications.
+- Optional candidate opt-in so companies can find matching profile résumés without a direct application.
 - PDF, DOCX, and TXT text extraction.
 - Skill coverage, matched and undetected skills, and TF-IDF cosine similarity.
 - Application status tracking and access-controlled résumé downloads.

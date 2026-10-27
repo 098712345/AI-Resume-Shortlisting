@@ -42,7 +42,9 @@ app.add_middleware(
 
 
 def connect_db() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
+    # FastAPI can resolve synchronous dependencies and async handlers in
+    # different worker threads; each request still gets its own connection.
+    connection = sqlite3.connect(DB_PATH, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
@@ -75,7 +77,8 @@ def initialize_db() -> None:
                 file_path TEXT NOT NULL,
                 extracted_text TEXT NOT NULL,
                 uploaded_at TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'submitted'
+                status TEXT NOT NULL DEFAULT 'submitted',
+                discoverable INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
             CREATE INDEX IF NOT EXISTS idx_resumes_job ON resumes(job_id);
@@ -84,6 +87,8 @@ def initialize_db() -> None:
         resume_columns = {row["name"] for row in db.execute("PRAGMA table_info(resumes)")}
         if "status" not in resume_columns:
             db.execute("ALTER TABLE resumes ADD COLUMN status TEXT NOT NULL DEFAULT 'submitted'")
+        if "discoverable" not in resume_columns:
+            db.execute("ALTER TABLE resumes ADD COLUMN discoverable INTEGER NOT NULL DEFAULT 0")
 
 
 @app.on_event("startup")
@@ -129,6 +134,10 @@ class LoginInput(BaseModel):
 class JobCreate(BaseModel):
     title: str = Field(min_length=3, max_length=160)
     description: str = Field(min_length=20, max_length=20_000)
+
+
+class ResumeVisibilityUpdate(BaseModel):
+    discoverable: bool
 
 
 def create_access_token(user: sqlite3.Row | dict[str, Any]) -> str:
@@ -357,12 +366,29 @@ def candidate_resumes(
     db: sqlite3.Connection = Depends(get_db),
 ) -> list[dict[str, Any]]:
     rows = db.execute(
-        "SELECT resumes.id,resumes.filename,resumes.job_id,resumes.uploaded_at,resumes.status,jobs.title AS job_title "
+        "SELECT resumes.id,resumes.filename,resumes.job_id,resumes.uploaded_at,resumes.status,resumes.discoverable,jobs.title AS job_title "
         "FROM resumes LEFT JOIN jobs ON jobs.id=resumes.job_id "
         "WHERE resumes.candidate_id=? ORDER BY resumes.uploaded_at DESC",
         (user["id"],),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+@app.patch("/api/candidate/resumes/{resume_id}/discoverability")
+def update_resume_discoverability(
+    resume_id: str,
+    payload: ResumeVisibilityUpdate,
+    user: sqlite3.Row = Depends(require_role("candidate")),
+    db: sqlite3.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    result = db.execute(
+        "UPDATE resumes SET discoverable=? WHERE id=? AND candidate_id=? AND job_id IS NULL",
+        (int(payload.discoverable), resume_id, user["id"]),
+    )
+    if result.rowcount == 0:
+        raise HTTPException(404, "Profile résumé not found")
+    db.commit()
+    return {"resume_id": resume_id, "discoverable": payload.discoverable}
 
 
 @app.get("/api/jobs/{job_id}/matches")
@@ -375,9 +401,14 @@ def get_matches(
     if not job:
         raise HTTPException(404, "Job not found")
     rows = db.execute(
-        "SELECT resumes.id,resumes.filename,resumes.extracted_text,resumes.uploaded_at,resumes.status,users.full_name,users.email "
-        "FROM resumes JOIN users ON users.id=resumes.candidate_id WHERE resumes.job_id=?",
-        (job_id,),
+        "SELECT resumes.id,resumes.filename,resumes.extracted_text,resumes.uploaded_at,resumes.status,users.full_name,users.email,"
+        "CASE WHEN resumes.job_id IS NULL THEN 'profile' ELSE 'application' END AS source "
+        "FROM resumes JOIN users ON users.id=resumes.candidate_id "
+        "WHERE resumes.job_id=? OR (resumes.job_id IS NULL AND resumes.discoverable=1 "
+        "AND resumes.id=(SELECT profile.id FROM resumes AS profile WHERE profile.candidate_id=resumes.candidate_id "
+        "AND profile.job_id IS NULL AND profile.discoverable=1 ORDER BY profile.uploaded_at DESC LIMIT 1) "
+        "AND NOT EXISTS (SELECT 1 FROM resumes AS application WHERE application.candidate_id=resumes.candidate_id AND application.job_id=?))",
+        (job_id, job_id),
     ).fetchall()
     matches = []
     for resume in rows:
@@ -389,6 +420,7 @@ def get_matches(
             "filename": resume["filename"],
             "uploaded_at": resume["uploaded_at"],
             "status": resume["status"],
+            "source": resume["source"],
             **analysis,
         })
     matches.sort(
@@ -426,6 +458,7 @@ def update_application_status(
 @app.get("/api/resumes/{resume_id}/download")
 def download_resume(
     resume_id: str,
+    job_id: str | None = None,
     user: sqlite3.Row = Depends(current_user),
     db: sqlite3.Connection = Depends(get_db),
 ) -> FileResponse:
@@ -436,9 +469,11 @@ def download_resume(
     if not resume:
         raise HTTPException(404, "Résumé not found")
     permitted = resume["candidate_id"] == user["id"]
-    if user["role"] == "company" and resume["job_id"]:
-        job = db.execute("SELECT company_id FROM jobs WHERE id=?", (resume["job_id"],)).fetchone()
-        permitted = bool(job and job["company_id"] == user["id"])
+    if user["role"] == "company":
+        relevant_job_id = resume["job_id"] or job_id
+        job = db.execute("SELECT company_id FROM jobs WHERE id=?", (relevant_job_id,)).fetchone() if relevant_job_id else None
+        owns_job = bool(job and job["company_id"] == user["id"])
+        permitted = owns_job and (resume["job_id"] == relevant_job_id or (resume["job_id"] is None and resume["discoverable"]))
     if not permitted:
         raise HTTPException(404, "Résumé not found")
     path = Path(resume["file_path"]).resolve()
@@ -451,6 +486,7 @@ def download_resume(
 async def upload_resume(
     file: UploadFile = File(...),
     job_id: str | None = Form(default=None),
+    discoverable: bool = Form(default=False),
     user: sqlite3.Row = Depends(require_role("candidate")),
     db: sqlite3.Connection = Depends(get_db),
 ) -> dict[str, Any]:
@@ -479,8 +515,8 @@ async def upload_resume(
     uploaded_at = utc_now()
     try:
         db.execute(
-            "INSERT INTO resumes (id,candidate_id,job_id,filename,file_path,extracted_text,uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            (resume_id, user["id"], job_id, original_name, str(destination), text, uploaded_at),
+            "INSERT INTO resumes (id,candidate_id,job_id,filename,file_path,extracted_text,uploaded_at,discoverable) VALUES (?,?,?,?,?,?,?,?)",
+            (resume_id, user["id"], job_id, original_name, str(destination), text, uploaded_at, int(discoverable and not job_id)),
         )
         db.commit()
     except Exception:
@@ -490,6 +526,7 @@ async def upload_resume(
         "id": resume_id,
         "filename": original_name,
         "job_id": job_id,
+        "discoverable": bool(discoverable and not job_id),
         "message": "Résumé saved to your candidate account" if not job_id else "Résumé attached to your application",
     }
     if job:

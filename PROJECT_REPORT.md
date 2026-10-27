@@ -35,6 +35,7 @@ their information and follow applications. This project aims to:
 
 - Register and sign in with a candidate account.
 - Save a profile résumé without waiting for an open role.
+- Choose whether companies may discover that profile résumé for job matching.
 - Browse publicly listed jobs and submit a résumé for a particular job.
 - View saved résumés and submitted application statuses.
 - Download their own résumé files.
@@ -44,6 +45,8 @@ their information and follow applications. This project aims to:
 - Register and sign in with a company account.
 - Post job titles and descriptions.
 - View applicants for jobs owned by that company.
+- Find candidates who opted into profile matching, even if they have not applied
+  to the company's job.
 - Review applicant contact details, recognized skills, skill coverage, and text
   similarity.
 - Download application résumés and update status to submitted, reviewing,
@@ -80,9 +83,10 @@ stores uploaded files in `Backend/uploads/`, and runs text extraction and matchi
 ## 5. Résumé matching method
 
 When a candidate uploads a résumé, the backend checks the file type and size,
-extracts text, and stores the file and extracted text. When a company views
-applicants for a job, the backend analyzes each application against that job's
-description.
+extracts text, and stores the file and extracted text. Candidates can choose to
+make a profile résumé discoverable. When a company views candidates for a job,
+the backend analyzes direct applications and the latest discoverable profile
+résumé for each opted-in candidate against that job's description.
 
 The analysis has two parts:
 
@@ -113,7 +117,8 @@ skills expressed in an unusual way. Companies should review the résumé itself.
 - Passwords are stored as password hashes.
 - Sign-in returns a bearer token that expires after 12 hours.
 - Candidate-only and company-only API routes enforce account roles.
-- Companies can only see applicants and download résumés for their own jobs.
+- Companies can only see applicants for their own jobs and can access profile
+  résumés only when the candidate opted into matching.
 - Candidates can list and download their own résumé files.
 - Accepted uploads are PDF, DOCX, and TXT, with a 10 MB limit.
 
@@ -131,6 +136,7 @@ strong `SHORTLIST_SECRET_KEY`, use HTTPS, and protect database and upload storag
 | POST | `/api/jobs` | Create a job as a company |
 | GET | `/api/company/jobs` | List jobs for the signed-in company |
 | GET | `/api/candidate/resumes` | List résumés for the signed-in candidate |
+| PATCH | `/api/candidate/resumes/{resume_id}/discoverability` | Candidate controls profile résumé sharing for matching |
 | POST | `/api/resumes` | Save a profile résumé or apply with a résumé |
 | GET | `/api/jobs/{job_id}/matches` | List and compare applicants for a company job |
 | PATCH | `/api/jobs/{job_id}/matches/{resume_id}` | Update application status |

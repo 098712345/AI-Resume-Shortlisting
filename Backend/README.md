@@ -21,8 +21,8 @@ API documentation is at `http://127.0.0.1:8000/docs` and the health check is
 
 - Create an account as a **company** or **candidate** at the homepage.
 - Companies can create job posts and view applicants only for their own jobs.
-- Candidates can save and download résumés, browse public job posts, apply to a specific job, and see each application status.
-- Companies can post jobs, review applicant contact details and résumé matches, download application résumés, and update application status.
+- Candidates can save and download résumés, optionally share a profile résumé for job matching, browse public job posts, apply to a specific job, and see each application status.
+- Companies can post jobs, review direct applicants and opted-in candidate profiles, download authorized résumés, and update application status.
 - Passwords are hashed. The API issues expiring bearer tokens after sign-in.
 - Accounts, jobs, and application records are stored in `shortlist.db`.
 - Uploaded files are stored in `uploads/`; extracted text is in SQLite.
@@ -35,6 +35,7 @@ API documentation is at `http://127.0.0.1:8000/docs` and the health check is
 - `POST /api/jobs` — create a job as a company
 - `GET /api/company/jobs` — current company's jobs
 - `GET /api/candidate/resumes` — list the signed-in candidate's saved résumé records
+- `PATCH /api/candidate/resumes/{resume_id}/discoverability` — let a candidate opt a profile résumé into or out of company matching
 - `POST /api/resumes` — save a profile résumé (`file` form field), or apply to a job (`file` and `job_id` form fields)
 - `GET /api/resumes/{resume_id}/download` — download a résumé if you own it or own the job application
 - `GET /api/jobs/{job_id}/matches` — applicants for a job, restricted to its company

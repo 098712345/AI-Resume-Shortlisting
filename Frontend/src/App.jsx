@@ -14,8 +14,9 @@ async function apiRequest(path, token, options = {}) {
   return data;
 }
 
-async function downloadResume(resumeId, token) {
-  const response = await fetch(`${API_BASE}/api/resumes/${resumeId}/download`, {
+async function downloadResume(resumeId, token, jobId = null) {
+  const query = jobId ? `?job_id=${encodeURIComponent(jobId)}` : "";
+  const response = await fetch(`${API_BASE}/api/resumes/${resumeId}/download${query}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!response.ok) {
@@ -165,8 +166,8 @@ function CompanyDashboard({ token, user }) {
     } catch (error) { setNotice(error.message); }
   }
 
-  async function downloadApplicantResume(resumeId) {
-    try { await downloadResume(resumeId, token); }
+  async function downloadApplicantResume(resumeId, jobId) {
+    try { await downloadResume(resumeId, token, jobId); }
     catch (error) { setNotice(error.message); }
   }
 
@@ -175,7 +176,7 @@ function CompanyDashboard({ token, user }) {
       <section className="h-fit rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <p className="text-[10px] font-extrabold tracking-[.16em] text-violet-700">COMPANY WORKSPACE</p>
         <h2 className="mt-2 text-2xl font-extrabold">Post a role</h2>
-        <p className="mt-1 text-sm text-slate-500">This job belongs to {user.company_name}.</p>
+        <p className="mt-1 text-sm text-slate-500">This job belongs to {user.company_name}. Results can include applications and candidate profiles shared for matching.</p>
         <form className="mt-5 grid gap-3" onSubmit={createJob}>
           <label className="grid gap-1.5 text-xs font-bold">Job title<input className="rounded-lg border border-stone-200 px-3 py-2.5 text-sm font-normal outline-none focus:border-violet-400" value={title} onChange={(event) => setTitle(event.target.value)} required minLength={3} maxLength={160} placeholder="e.g. Frontend Engineer" /></label>
           <label className="grid gap-1.5 text-xs font-bold">Job description<textarea className="resize-y rounded-lg border border-stone-200 px-3 py-2.5 text-sm font-normal leading-6 outline-none focus:border-violet-400" value={description} onChange={(event) => setDescription(event.target.value)} required minLength={20} maxLength={20000} rows={6} placeholder="Describe responsibilities, required skills, and experience…" /></label>
@@ -188,11 +189,11 @@ function CompanyDashboard({ token, user }) {
           <article className="rounded-xl border border-stone-200 p-4" key={job.id}>
             <h3 className="font-bold">{job.title}</h3>
             <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-slate-500">{job.description}</p>
-            <button className="mt-3 rounded-lg bg-violet-50 px-3 py-2 text-xs font-bold text-violet-800 hover:bg-violet-100" onClick={() => showMatches(job.id)}>{matches[job.id] ? "Refresh applicants" : "View applicants and matches"}</button>
-            {matches[job.id] && <div className="mt-3 grid gap-2 border-t border-stone-100 pt-3">{matches[job.id].length === 0 ? <p className="text-xs text-slate-500">No applications for this role yet.</p> : matches[job.id].map((match) => (
+            <button className="mt-3 rounded-lg bg-violet-50 px-3 py-2 text-xs font-bold text-violet-800 hover:bg-violet-100" onClick={() => showMatches(job.id)}>{matches[job.id] ? "Refresh candidate matches" : "Find matching candidates"}</button>
+            {matches[job.id] && <div className="mt-3 grid gap-2 border-t border-stone-100 pt-3">{matches[job.id].length === 0 ? <p className="text-xs text-slate-500">No applications or shared candidate profiles match this role yet.</p> : matches[job.id].map((match) => (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-stone-50 p-3" key={match.resume_id}>
-                <div className="min-w-0"><strong className="block truncate text-xs">{match.candidate_name}</strong><span className="block text-[10px] text-slate-500">{match.candidate_email} · {match.filename}</span><span className="mt-1 block text-[10px] font-semibold text-emerald-800">Skill coverage: {match.skill_match_percentage === null ? "No recognized skills found in this job description" : `${match.skill_match_percentage}% (${match.matched_skills.length}/${match.job_skills.length})`}</span><span className="block text-[10px] text-slate-600">Found: {match.matched_skills.length ? match.matched_skills.join(", ") : "No recognized listed skills"}</span>{match.missing_skills.length > 0 && <span className="block text-[10px] text-amber-800">Not detected: {match.missing_skills.join(", ")}</span>}</div>
-                <div className="flex items-center gap-2"><span className="text-right"><strong className="block text-sm font-extrabold text-violet-700">{match.match_score}%</strong><span className="block text-[9px] text-slate-400">text similarity</span></span><button className="rounded border border-stone-300 px-2 py-1 text-[10px]" onClick={() => downloadApplicantResume(match.resume_id)}>Résumé</button><select aria-label={`Application status for ${match.candidate_name}`} className="rounded border border-stone-300 bg-white px-2 py-1 text-[10px]" value={match.status} onChange={(event) => updateStatus(job.id, match.resume_id, event.target.value)}><option value="submitted">Submitted</option><option value="reviewing">Reviewing</option><option value="shortlisted">Shortlisted</option><option value="rejected">Rejected</option></select></div>
+                <div className="min-w-0"><strong className="block truncate text-xs">{match.candidate_name}</strong><span className="block text-[10px] text-slate-500">{match.candidate_email} · {match.filename} · {match.source === "profile" ? "Shared profile" : "Applied"}</span><span className="mt-1 block text-[10px] font-semibold text-emerald-800">Skill coverage: {match.skill_match_percentage === null ? "No recognized skills found in this job description" : `${match.skill_match_percentage}% (${match.matched_skills.length}/${match.job_skills.length})`}</span><span className="block text-[10px] text-slate-600">Found: {match.matched_skills.length ? match.matched_skills.join(", ") : "No recognized listed skills"}</span>{match.missing_skills.length > 0 && <span className="block text-[10px] text-amber-800">Not detected: {match.missing_skills.join(", ")}</span>}</div>
+                <div className="flex items-center gap-2"><span className="text-right"><strong className="block text-sm font-extrabold text-violet-700">{match.match_score}%</strong><span className="block text-[9px] text-slate-400">text similarity</span></span><button className="rounded border border-stone-300 px-2 py-1 text-[10px]" onClick={() => downloadApplicantResume(match.resume_id, job.id)}>Résumé</button>{match.source === "application" ? <select aria-label={`Application status for ${match.candidate_name}`} className="rounded border border-stone-300 bg-white px-2 py-1 text-[10px]" value={match.status} onChange={(event) => updateStatus(job.id, match.resume_id, event.target.value)}><option value="submitted">Submitted</option><option value="reviewing">Reviewing</option><option value="shortlisted">Shortlisted</option><option value="rejected">Rejected</option></select> : <span className="rounded bg-sky-50 px-2 py-1 text-[10px] text-sky-800">Profile match</span>}</div>
               </div>
             ))}</div>}
           </article>
@@ -215,6 +216,18 @@ function CandidateDashboard({ token }) {
   async function downloadCandidateResume(resumeId) {
     try { await downloadResume(resumeId, token); }
     catch (error) { setNotice(error.message); }
+  }
+
+  async function toggleDiscoverability(resumeId, discoverable) {
+    try {
+      await apiRequest(`/api/candidate/resumes/${resumeId}/discoverability`, token, {
+        method: "PATCH", body: JSON.stringify({ discoverable }),
+      });
+      setSavedResumes((previous) => previous.map((resume) => resume.id === resumeId ? { ...resume, discoverable } : resume));
+      setNotice(discoverable
+        ? "Companies can now find this résumé when it matches one of their jobs."
+        : "This résumé is now private to your candidate account.");
+    } catch (error) { setNotice(error.message); }
   }
 
   async function loadCandidateData() {
@@ -283,7 +296,7 @@ function CandidateDashboard({ token }) {
           <button className="min-h-11 bg-[#173c32] px-5 text-sm font-semibold text-white transition hover:bg-[#245848] disabled:cursor-not-allowed disabled:opacity-50" disabled={!profileFile || uploadingProfile} onClick={saveProfileResume}>{uploadingProfile ? "Uploading…" : "Save résumé"}</button>
         </div>
         {notice && <p className="mt-4 border-l-2 border-[#bd6849] bg-[#f7f5ee] px-4 py-3 text-xs text-[#173c32]" role="status">{notice}</p>}
-        {savedResumes.length > 0 && <div className="mt-5 border-t border-stone-100 pt-4"><p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Your résumés and applications</p><div className="grid gap-2 sm:grid-cols-2">{savedResumes.map((resume) => <div className="flex items-center justify-between gap-3 bg-[#f7f5ee] px-3 py-2.5" key={resume.id}><div className="min-w-0"><span className="block truncate text-xs font-medium text-slate-700">{resume.filename}</span><span className="text-[10px] text-slate-400">{resume.job_title || "Profile résumé"}{resume.job_id ? ` · ${resume.status}` : ""}</span></div><button className="shrink-0 border-b border-[#173c32] text-[10px] font-semibold text-[#173c32]" onClick={() => downloadCandidateResume(resume.id)}>Download</button></div>)}</div></div>}
+        {savedResumes.length > 0 && <div className="mt-5 border-t border-stone-100 pt-4"><p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Your résumés and applications</p><div className="grid gap-2 sm:grid-cols-2">{savedResumes.map((resume) => <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f7f5ee] px-3 py-2.5" key={resume.id}><div className="min-w-0"><span className="block truncate text-xs font-medium text-slate-700">{resume.filename}</span><span className="text-[10px] text-slate-400">{resume.job_title || "Profile résumé"}{resume.job_id ? ` · ${resume.status}` : ""}</span></div><div className="flex items-center gap-3">{!resume.job_id && <label className="flex items-center gap-1.5 text-[10px] text-slate-600"><input type="checkbox" checked={Boolean(resume.discoverable)} onChange={(event) => toggleDiscoverability(resume.id, event.target.checked)} />Share for matching</label>}<button className="shrink-0 border-b border-[#173c32] text-[10px] font-semibold text-[#173c32]" onClick={() => downloadCandidateResume(resume.id)}>Download</button></div></div>)}</div><p className="mt-2 text-[10px] leading-5 text-slate-500">When enabled, companies can view and download this profile résumé for matching against their jobs. You can turn sharing off at any time.</p></div>}
       </section>
 
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
